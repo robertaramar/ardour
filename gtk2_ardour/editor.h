@@ -543,6 +543,7 @@ class Editor : public PublicEditor, public PBD::ScopedConnectionList, public ARD
 	void color_handler ();
 
 	bool                 constructed;
+	Gtkmm2ext::ActionMap myactions;
 	Gtkmm2ext::Bindings  key_bindings;
 
 	// to keep track of the playhead position for control_scroll
@@ -1167,7 +1168,6 @@ class Editor : public PublicEditor, public PBD::ScopedConnectionList, public ARD
 	void register_region_actions ();
 
 	void load_bindings ();
-	Gtkmm2ext::ActionMap editor_action_map;
 
 	/* CUT/COPY/PASTE */
 
@@ -2225,6 +2225,12 @@ class Editor : public PublicEditor, public PBD::ScopedConnectionList, public ARD
 
 	QuantizeDialog* quantize_dialog;
 	MainMenuDisabler* _main_menu_disabler;
+
+	/* private helper functions to help with registering axis */
+
+	Glib::RefPtr<Gtk::Action> reg_sens (Glib::RefPtr<Gtk::ActionGroup> group, char const * name, char const * label, sigc::slot<void> slot);
+	void toggle_reg_sens (Glib::RefPtr<Gtk::ActionGroup> group, char const * name, char const * label, sigc::slot<void> slot);
+	void radio_reg_sens (Glib::RefPtr<Gtk::ActionGroup> action_group, Gtk::RadioAction::Group& radio_group, char const * name, char const * label, sigc::slot<void> slot);
 
 	friend class Drag;
 	friend class RegionDrag;
