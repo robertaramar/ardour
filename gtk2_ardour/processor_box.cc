@@ -30,6 +30,7 @@
 #include "pbd/convert.h"
 
 #include <glibmm/miscutils.h>
+#include <glibmm/fileutils.h>
 
 #include <gtkmm/messagedialog.h>
 
@@ -45,6 +46,8 @@
 #include "ardour/audioengine.h"
 #include "ardour/internal_return.h"
 #include "ardour/internal_send.h"
+#include "ardour/luaproc.h"
+#include "ardour/luascripting.h"
 #include "ardour/meter.h"
 #include "ardour/panner_shell.h"
 #include "ardour/plugin_insert.h"
@@ -72,6 +75,7 @@
 #include "public_editor.h"
 #include "return_ui.h"
 #include "route_processor_selection.h"
+#include "script_selector.h"
 #include "send_ui.h"
 #include "timers.h"
 #include "tooltips.h"
@@ -1737,6 +1741,58 @@ ProcessorBox::choose_plugin ()
 
 /** @return true if an error occurred, otherwise false */
 bool
+ProcessorBox::choose_lua ()
+{
+	std::string path;
+	std::string script;
+
+	ScriptSelector ss ("LuaProcessor", LuaScriptInfo::DSP);
+	switch (ss.run ()) {
+		case Gtk::RESPONSE_ACCEPT:
+			path = ss.path();
+			break;
+		default:
+			return true;
+	}
+
+	if (!Glib::file_test(path, Glib::FILE_TEST_EXISTS)) {
+		// error
+		return true;
+	}
+
+	try {
+		script = Glib::file_get_contents (path);
+	} catch (FileError err) {
+		return true;
+	}
+
+	boost::shared_ptr<Processor> processor;
+
+	try {
+		processor.reset (new LuaProc (*_session, script));
+	} catch (...) {
+		string msg = _(
+				"Failed to instantiate Lua DSP Processor,\n"
+				"probably because the script is invalid (no dsp function).");
+		MessageDialog am (msg);
+		am.run ();
+		return true;
+	}
+
+	Route::ProcessorStreams err_streams;
+	if (_route->add_processor_by_index (processor, _placement, &err_streams, Config->get_new_plugins_active ())) {
+		string msg = _(
+				"Failed to add Lua DSP Processor at the given position,\n"
+				"probably because the I/O configuration of the plugins\n"
+				"could not match the configuration of this track.");
+		MessageDialog am (msg);
+		am.run ();
+	}
+	return false;
+}
+
+/** @return true if an error occurred, otherwise false */
+bool
 ProcessorBox::use_plugins (const SelectedPlugins& plugins)
 {
 	for (SelectedPlugins::const_iterator p = plugins.begin(); p != plugins.end(); ++p) {
@@ -2063,10 +2119,11 @@ ProcessorBox::add_processor_to_display (boost::weak_ptr<Processor> p)
 
 	boost::shared_ptr<Send> send = boost::dynamic_pointer_cast<Send> (processor);
 	boost::shared_ptr<PortInsert> ext = boost::dynamic_pointer_cast<PortInsert> (processor);
+	boost::shared_ptr<LuaProc> luaproc = boost::dynamic_pointer_cast<LuaProc> (processor);
 	boost::shared_ptr<UnknownProcessor> stub = boost::dynamic_pointer_cast<UnknownProcessor> (processor);
 
 	//faders and meters are not deletable, copy/paste-able, so they shouldn't be selectable
-	if (!send && !plugin_insert && !ext && !stub)
+	if (!send && !plugin_insert && !ext && !stub && !luaproc)
 		e->set_selectable(false);
 
 	bool mark_send_visible = false;
@@ -2521,6 +2578,12 @@ ProcessorBox::paste_processor_state (const XMLNodeList& nlist, boost::shared_ptr
 
 				p.reset (pi);
 
+			} else if (type->value() == "luaproc") {
+
+				p.reset (new LuaProc (*_session));
+				Stateful::ForceIDRegeneration force_ids;
+				p->set_state (**niter, Stateful::current_state_version);
+
 			} else {
 				/* XXX its a bit limiting to assume that everything else
 				   is a plugin.
@@ -2807,6 +2870,8 @@ ProcessorBox::register_actions ()
 	ActionManager::register_action (popup_act_grp, X_("newplugin"), _("New Plugin"),
 			sigc::ptr_fun (ProcessorBox::rb_choose_plugin));
 
+	act = ActionManager::register_action (popup_act_grp, X_("newlua"), _("New Lua Proc"),
+			sigc::ptr_fun (ProcessorBox::rb_choose_lua));
 	act = ActionManager::register_action (popup_act_grp, X_("newinsert"), _("New Insert"),
 			sigc::ptr_fun (ProcessorBox::rb_choose_insert));
 	ActionManager::engine_sensitive_actions.push_back (act);
@@ -2891,6 +2956,15 @@ ProcessorBox::rb_choose_plugin ()
 		return;
 	}
 	_current_processor_box->choose_plugin ();
+}
+
+void
+ProcessorBox::rb_choose_lua ()
+{
+	if (_current_processor_box == 0) {
+		return;
+	}
+	_current_processor_box->choose_lua ();
 }
 
 void
