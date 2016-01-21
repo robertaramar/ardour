@@ -49,6 +49,7 @@
 #include "ardour/gain_control.h"
 #include "ardour/internal_return.h"
 #include "ardour/internal_send.h"
+#include "ardour/luaproc.h"
 #include "ardour/meter.h"
 #include "ardour/delayline.h"
 #include "ardour/midi_buffer.h"
@@ -2972,6 +2973,8 @@ Route::set_processor_state (const XMLNode& node)
 
 					processor.reset (new InternalSend (_session, _pannable, _mute_master, boost::dynamic_pointer_cast<ARDOUR::Route>(shared_from_this()), boost::shared_ptr<Route>(), Delivery::Aux, true));
 
+				} else if (prop->value() == "luaproc") {
+					processor.reset (new LuaProc (_session));
 				} else if (prop->value() == "ladspa" || prop->value() == "Ladspa" ||
 				           prop->value() == "lv2" ||
 				           prop->value() == "windows-vst" ||
