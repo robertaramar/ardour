@@ -53,6 +53,8 @@ private:
 	bool load_script ();
 	void lua_print (std::string s);
 
+	ChanCount _configured_in;
+	ChanCount _configured_out;
 };
 
 } // namespace ARDOUR

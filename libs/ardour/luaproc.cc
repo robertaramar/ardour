@@ -37,6 +37,8 @@
 using namespace ARDOUR;
 using namespace PBD;
 
+// TODO use Plugin instead of Processor
+
 LuaProc::LuaProc (Session& s, const std::string &script)
 	: Processor (s, "LuaProc")
 	, _mempool ("LuaProc", 1048576) // 1 MB is plenty. (64K would be enough)
@@ -148,16 +150,188 @@ LuaProc::load_script ()
 bool
 LuaProc::can_support_io_configuration (const ChanCount& in, ChanCount& out)
 {
-	out = in;
+	lua_State* L = lua.getState ();
+	luabridge::LuaRef ioconfig = luabridge::getGlobal (L, "ioconfig");
+	if (ioconfig.type() != LUA_TFUNCTION) {
+		return false;
+	}
+
+	// TODO iterative calls to  ioconfig() to get next
+	luabridge::LuaRef iotable = ioconfig();
+	assert (iotable.type() == LUA_TTABLE);
+
+	if (iotable.length() < 1) {
+		return false;
+	}
+
+	int32_t audio_in = in.n_audio();
+	int32_t audio_out = audio_in;
+
+	for (luabridge::Iterator i(iotable); !i.isNil (); ++i) {
+		assert (i.value().type() == LUA_TTABLE);
+		luabridge::LuaRef io (i.value());
+
+		int possible_in = io["audio_in"];
+		int possible_out = io["audio_out"];
+
+		// exact match
+		if ((possible_in == audio_in) && (possible_out == audio_out)) {
+			out.set (DataType::MIDI, 0);
+			out.set (DataType::AUDIO, audio_out);
+			return true;
+		}
+	}
+
+	/* now allow potentially "imprecise" matches */
+	audio_out = -1;
+	bool found = false;
+
+	for (luabridge::Iterator i(iotable); !i.isNil (); ++i) {
+		assert (i.value().type() == LUA_TTABLE);
+		luabridge::LuaRef io (i.value());
+
+		int possible_in = io["audio_in"];
+		int possible_out = io["audio_out"];
+
+		if (possible_out == 0) {
+			continue;
+		}
+		if (possible_in == 0) {
+			/* no inputs, generators & instruments */
+			if (possible_out == -1) {
+				/* any configuration possible, provide stereo output */
+				audio_out = 2;
+				found = true;
+			} else if (possible_out == -2) {
+				/* invalid, should be (0, -1) */
+				audio_out = 2;
+				found = true;
+			} else if (possible_out < -2) {
+				/* variable number of outputs. -> whatever */
+				audio_out = 2;
+				found = true;
+			} else {
+				/* exact number of outputs */
+				audio_out = possible_out;
+				found = true;
+			}
+		}
+
+		if (possible_in == -1) {
+			/* wildcard for input */
+			if (possible_out == -1) {
+				/* out much match in */
+				audio_out = audio_in;
+				found = true;
+			} else if (possible_out == -2) {
+				/* any configuration possible, pick matching */
+				audio_out = audio_in;
+				found = true;
+			} else if (possible_out < -2) {
+				/* explicitly variable number of outputs, pick maximum */
+				audio_out = -possible_out;
+				found = true;
+			} else {
+				/* exact number of outputs */
+				audio_out = possible_out;
+				found = true;
+			}
+		}
+
+		if (possible_in == -2) {
+
+			if (possible_out == -1) {
+				/* any configuration possible, pick matching */
+				audio_out = audio_in;
+				found = true;
+			} else if (possible_out == -2) {
+				/* invalid. interpret as (-1, -1) */
+				audio_out = audio_in;
+				found = true;
+			} else if (possible_out < -2) {
+				/* explicitly variable number of outputs, pick maximum */
+				audio_out = -possible_out;
+				found = true;
+			} else {
+				/* exact number of outputs */
+				audio_out = possible_out;
+				found = true;
+			}
+		}
+
+		if (possible_in < -2) {
+			/* explicit variable number of inputs */
+			if (audio_in > -possible_in) {
+				/* request is too large */
+			}
+			if (possible_out == -1) {
+				/* any output configuration possible, provide stereo out */
+				audio_out = 2;
+				found = true;
+			} else if (possible_out == -2) {
+				/* invalid. interpret as (<-2, -1) */
+				audio_out = 2;
+				found = true;
+			} else if (possible_out < -2) {
+				/* explicitly variable number of outputs, pick stereo */
+				audio_out = 2;
+				found = true;
+			} else {
+				/* exact number of outputs */
+				audio_out = possible_out;
+				found = true;
+			}
+		}
+
+		if (possible_in && (possible_in == audio_in)) {
+			/* exact number of inputs ... must match obviously */
+			if (possible_out == -1) {
+				/* any output configuration possible, provide stereo output */
+				audio_out = 2;
+				found = true;
+			} else if (possible_out == -2) {
+				/* invalid. interpret as (>0, -1) */
+				audio_out = 2;
+				found = true;
+			} else if (possible_out < -2) {
+				/* explicitly variable number of outputs, pick maximum */
+				audio_out = -possible_out;
+				found = true;
+			} else {
+				/* exact number of outputs */
+				audio_out = possible_out;
+				found = true;
+			}
+		}
+
+		if (found) {
+			break;
+		}
+	}
+
+	if (!found) {
+		return false;
+	}
+
+	out.set (DataType::MIDI, 0);
+	out.set (DataType::AUDIO, audio_out);
 	return true;
 }
 
 bool
 LuaProc::configure_io (ChanCount in, ChanCount out)
 {
-	if (out != in) { // always 1:1 currently
-		return false;
-	}
+	// TODO call optional lua function in plugin to configure.
+
+	_configured_in = in;
+	_configured_out = out;
+
+	// XXX  global ?
+	lua_State* L = lua.getState ();
+	luabridge::push <ChanCount *> (L, &_configured_in);
+	lua_setglobal (L, "InputConfig");
+	luabridge::push <ChanCount *> (L, &_configured_out);
+	lua_setglobal (L, "OutputConfig");
 
 	return Processor::configure_io (in, out);
 }
