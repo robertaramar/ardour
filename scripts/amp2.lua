@@ -10,6 +10,10 @@ ardour {
 	be used with Ardour's Lua scripting facility.]]
 }
 
+function ioconfig ()
+	return { [1] = { audio_in = -1, audio_out = -1}, }
+end
+
 -- this variant modifies the audio data in-place
 -- in Ardour's buffer.
 
