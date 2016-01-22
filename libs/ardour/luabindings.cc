@@ -24,6 +24,7 @@
 #include "ardour/luabindings.h"
 #include "ardour/meter.h"
 #include "ardour/midi_track.h"
+#include "ardour/runtime_functions.h"
 #include "ardour/session.h"
 #include "ardour/session_object.h"
 #include "ardour/tempo.h"
@@ -104,6 +105,18 @@ LuaBindings::rtsafe_common (lua_State* L)
 		.addFunction ("get_audio", static_cast<AudioBuffer&(BufferSet::*)(size_t)>(&BufferSet::get_audio))
 		.addFunction ("count", static_cast<const ChanCount&(BufferSet::*)()const>(&BufferSet::count))
 		.endClass()
+		.endNamespace ();
+
+	luabridge::getGlobalNamespace (L)
+		.beginNamespace ("ARDOUR")
+		.beginNamespace ("DSP")
+		.addFunction ("compute_peak", ARDOUR::compute_peak)
+		.addFunction ("find_peaks", ARDOUR::find_peaks)
+		.addFunction ("apply_gain_to_buffer", ARDOUR::apply_gain_to_buffer)
+		.addFunction ("mix_buffers_no_gain", ARDOUR::mix_buffers_no_gain)
+		.addFunction ("mix_buffers_with_gain", ARDOUR::mix_buffers_with_gain)
+		.addFunction ("copy_vector", ARDOUR::copy_vector)
+		.endNamespace ()
 		.endNamespace ();
 }
 
