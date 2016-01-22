@@ -86,6 +86,8 @@ public:
 
 	LuaScriptList &scripts (LuaScriptInfo::ScriptType);
 
+	void refresh ();
+
 private:
 	static LuaScripting* _instance; // singleton
 	LuaScripting ();

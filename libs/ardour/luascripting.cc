@@ -70,6 +70,27 @@ LuaScripting::check_scan ()
 }
 
 void
+LuaScripting::refresh ()
+{
+	Glib::Threads::Mutex::Lock lm (_lock, Glib::Threads::TRY_LOCK);
+
+	if (!lm.locked()) {
+		return;
+	}
+
+	delete _sl_dsp;
+	delete _sl_session;
+	delete _sl_hook;
+	delete _sl_action;
+
+	_sl_dsp = 0;
+	_sl_session = 0;
+	_sl_hook = 0;
+	_sl_action = 0;
+}
+
+
+void
 LuaScripting::scan ()
 {
 	Glib::Threads::Mutex::Lock lm (_lock, Glib::Threads::TRY_LOCK);
